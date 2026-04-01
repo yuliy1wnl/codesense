@@ -15,6 +15,7 @@ from backend.retrieval.retriever import HybridRetriever
 from backend.retrieval.reranker import Reranker
 from backend.generation.generator import Generator
 from backend.generation.memory import ChatMemory
+from backend.evaluation.evaluator import RAGEvaluator
 
 load_dotenv()
 
@@ -40,6 +41,7 @@ embedder = Embedder()
 retriever = HybridRetriever()
 reranker  = Reranker()
 generator = Generator()
+evaluator = RAGEvaluator()
 
 # In-memory session store: repo_id → ChatMemory
 sessions: dict[str, ChatMemory] = {}
@@ -67,6 +69,11 @@ class QueryResponse(BaseModel):
     citations: list
     question: str
 
+class EvalRequest(BaseModel):
+    repo_id: str
+    questions: list[str]
+    ground_truths: Optional[list[str]] = None
+EvalRequest.model_rebuild()
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -247,3 +254,48 @@ def list_repos():
         name = c.name.replace("_code_chunks", "").replace("_docs_chunks", "")
         repos.add(name)
     return {"repos": list(repos)}
+@app.post("/evaluate")
+async def evaluate_rag(body: EvalRequest):
+    if body.repo_id not in sessions:
+        sessions[body.repo_id] = ChatMemory()
+
+    loop = asyncio.get_event_loop()
+    questions = body.questions
+    answers = []
+    contexts = []
+
+    for question in questions:
+        chunks = await loop.run_in_executor(
+            None,
+            lambda q=question: retriever.retrieve(q, body.repo_id)
+        )
+        top_chunks = await loop.run_in_executor(
+            None,
+            lambda c=chunks, q=question: reranker.rerank(q, c)
+        )
+        result = await loop.run_in_executor(
+            None,
+            lambda c=top_chunks, q=question: generator.generate(
+                question=q,
+                chunks=c
+            )
+        )
+        answers.append(result["answer"])
+        contexts.append([c["content"] for c in top_chunks])
+
+    scores = await loop.run_in_executor(
+        None,
+        lambda: evaluator.evaluate_responses(
+            questions=questions,
+            answers=answers,
+            contexts=contexts,
+            ground_truths=body.ground_truths
+        )
+    )
+
+    return {
+        "repo_id": body.repo_id,
+        "num_questions": len(questions),
+        "scores": scores,
+        "questions_evaluated": questions
+    }
