@@ -28,7 +28,11 @@ DOC_EXTENSIONS = {
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv",
     "venv", "dist", "build", ".next", "coverage",
-    ".pytest_cache", ".mypy_cache", "vendor"
+    ".pytest_cache", ".mypy_cache", "vendor",
+    # Skip translated docs — they duplicate content and hurt retrieval
+    "docs/zh", "docs/zh-hant", "docs/ko", "docs/pt",
+    "docs/ja", "docs/de", "docs/fr", "docs/es",
+    "docs/ru", "docs/uk", "docs/tr", "docs/it"
 }
 
 @dataclass
@@ -70,6 +74,17 @@ class FileWalker:
                     language = "markdown"
                 else:
                     continue  # skip unknown file types
+                # Skip translated documentation (non-English)
+                # Keep only docs/en/ and root-level docs
+                if file_type == "doc" and "docs" + os.sep in rel_path:
+                    parts = rel_path.split(os.sep)
+                    if "docs" in parts:
+                        docs_idx = parts.index("docs")
+                        # Check if next part is a non-English language code
+                        if len(parts) > docs_idx + 1:
+                            lang = parts[docs_idx + 1]
+                            if lang != "en" and len(lang) <= 7:
+                                continue  # skip non-English docs
 
                 # Skip large files
                 size = os.path.getsize(abs_path)

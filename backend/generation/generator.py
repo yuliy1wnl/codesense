@@ -21,6 +21,8 @@ Your job:
 - If the answer isn't in the context, say so honestly
 - Keep answers concise and technical
 - Format code examples with proper markdown code blocks
+- Focus on SOURCE CODE files over translated documentation files
+- Prefer files in the root or core directories over docs/ subdirectories
 
 Context format:
 Each snippet shows: [file path | function name | lines X-Y]

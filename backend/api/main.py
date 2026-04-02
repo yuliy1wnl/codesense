@@ -16,6 +16,7 @@ from backend.retrieval.reranker import Reranker
 from backend.generation.generator import Generator
 from backend.generation.memory import ChatMemory
 from backend.evaluation.evaluator import RAGEvaluator
+from backend.retrieval.router import QueryRouter
 
 load_dotenv()
 
@@ -193,6 +194,17 @@ async def query(request: QueryRequest):
         citations=result["citations"],
         question=result["question"]
     )
+    router = QueryRouter()
+
+    # Inside the query endpoint, after getting the decision:
+    decision = router.route(request.question)
+
+    if decision.intent == "off_topic":
+        return QueryResponse(
+            answer="I can only answer questions about this codebase. Try asking about the code structure, specific functions, or how to run the project.",
+            citations=[],
+            question=request.question
+        )
 
 
 @app.post("/query/stream")

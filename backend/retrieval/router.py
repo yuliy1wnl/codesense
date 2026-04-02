@@ -18,7 +18,8 @@ QueryIntent = Literal[
     "find_bug",          # "find bugs in this file"
     "how_to_run",        # "how do I run this project?"
     "architecture",      # "summarize the architecture"
-    "general"            # anything else
+    "general",            # anything else
+    "off_topic"          # not related to the codebase at all
 ]
 
 class RouteDecision(BaseModel):
@@ -50,12 +51,14 @@ Intent types:
 - how_to_run: asking how to set up or run the project
 - architecture: asking about the overall structure or design
 - general: any other question
+- off_topic: question is not related to the codebase at all
 
 Rules:
 - how_to_run and explain_project → search docs only
 - find_code, explain_code, find_bug → search code only
 - architecture → search both
 - general → search both
+- off_topic → search neither
 
 Respond in JSON with fields: intent, search_code, search_docs, reasoning"""),
     ("human", "Question: {question}")
