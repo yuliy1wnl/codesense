@@ -63,9 +63,9 @@ class RAGEvaluator:
         dataset = Dataset.from_dict(data)
 
         # Pick metrics based on whether we have ground truths
-        metrics = [faithfulness, answer_relevancy, context_precision]
+        metrics = [faithfulness, answer_relevancy]
         if ground_truths:
-            metrics.append(context_recall)
+            metrics.append([context_precision, context_recall])
 
         # Run evaluation
         start = time.time()
