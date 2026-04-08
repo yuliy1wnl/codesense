@@ -19,7 +19,8 @@ QueryIntent = Literal[
     "how_to_run",        # "how do I run this project?"
     "architecture",      # "summarize the architecture"
     "general",            # anything else
-    "off_topic"          # not related to the codebase at all
+    "off_topic",          # not related to the codebase at all
+    "explain_feature"    # "how does the search feature work?"
 ]
 
 class RouteDecision(BaseModel):
@@ -52,9 +53,12 @@ Intent types:
 - architecture: asking about the overall structure or design
 - general: any other question
 - off_topic: question is not related to the codebase at all
+- explain_feature: asking how a specific feature or concept works in this codebase
 
 Rules:
 - how_to_run and explain_project → search docs only
+- explain_project → search both
+- explain_feature → search both
 - find_code, explain_code, find_bug → search code only
 - architecture → search both
 - general → search both

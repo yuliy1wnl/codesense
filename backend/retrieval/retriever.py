@@ -1,8 +1,8 @@
 import os
-from typing import List, Tuple
+import re
+from typing import List
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter
 from langchain_ollama import OllamaEmbeddings
 from rank_bm25 import BM25Okapi
 from backend.retrieval.router import QueryRouter, RouteDecision
@@ -16,6 +16,11 @@ TOP_K_RETRIEVAL = int(os.getenv("TOP_K_RETRIEVAL", 20))
 
 CODE_COLLECTION = "code_chunks"
 DOCS_COLLECTION = "docs_chunks"
+
+
+def tokenize(text: str) -> list:
+    return re.findall(r'\b\w+\b', text.lower())
+
 
 class HybridRetriever:
     def __init__(self):
@@ -32,10 +37,6 @@ class HybridRetriever:
         repo_id: str,
         top_k: int = TOP_K_RETRIEVAL
     ) -> List[dict]:
-        """
-        Route the query then retrieve from the right indexes
-        using hybrid search (vector + BM25).
-        """
         decision = self.router.route(question)
         results = []
 
@@ -51,7 +52,7 @@ class HybridRetriever:
             doc_results = self._hybrid_search(
                 question=question,
                 collection=f"{repo_id}_{DOCS_COLLECTION}",
-                top_k=top_k // 2  # fewer doc chunks needed
+                top_k=top_k // 2
             )
             results.extend(doc_results)
 
@@ -64,7 +65,6 @@ class HybridRetriever:
         collection: str,
         top_k: int
     ) -> List[dict]:
-        """Combine vector search and BM25 keyword search."""
 
         # --- Vector search ---
         query_vector = self.embeddings.embed_query(question)
@@ -77,10 +77,9 @@ class HybridRetriever:
         vector_results = vector_response.points
 
         # --- BM25 keyword search ---
-        # Fetch all stored chunks for BM25 scoring
         all_points = self.client.scroll(
             collection_name=collection,
-            limit=2000,  # reasonable upper bound
+            limit=5000,
             with_payload=True,
             with_vectors=False
         )[0]
@@ -88,18 +87,29 @@ class HybridRetriever:
         bm25_results = []
         if all_points:
             corpus = [p.payload.get("content", "") for p in all_points]
-            tokenized_corpus = [doc.lower().split() for doc in corpus]
+            tokenized_corpus = [tokenize(doc) for doc in corpus]
             bm25 = BM25Okapi(tokenized_corpus)
+            scores = bm25.get_scores(tokenize(question))
 
-            tokenized_query = question.lower().split()
-            scores = bm25.get_scores(tokenized_query)
+            # STEP 1: boost scores for chunks whose name matches a query token
+            # Must happen BEFORE sorting so boosted chunks rank higher
+            query_tokens = set(tokenize(question))
+            for i, point in enumerate(all_points):
+                chunk_name = point.payload.get("name", "").lower()
+                if chunk_name in query_tokens:
+                    scores[i] *= 3.0
+                    print(f"  [BOOST] {chunk_name} — {point.payload.get('file_path')} boosted to {scores[i]:.3f}")
 
-            # Get top BM25 results
+            # STEP 2: sort AFTER boosting
             top_indices = sorted(
                 range(len(scores)),
                 key=lambda i: scores[i],
                 reverse=True
             )[:top_k]
+
+            print(f"Top 3 BM25 results after boost:")
+            for i in top_indices[:3]:
+                print(f"  [{scores[i]:.3f}] {all_points[i].payload.get('name')} — {all_points[i].payload.get('file_path')}")
 
             bm25_results = [
                 {
@@ -116,8 +126,7 @@ class HybridRetriever:
                 if scores[i] > 0
             ]
 
-        # --- Merge results ---
-        # Convert vector results to same format
+        # --- Merge: vector first, then BM25 ---
         vector_dicts = [
             {
                 "content": r.payload.get("content", ""),
@@ -132,7 +141,6 @@ class HybridRetriever:
             for r in vector_results
         ]
 
-        # Deduplicate by file_path + start_line
         seen = set()
         merged = []
         for chunk in vector_dicts + bm25_results:

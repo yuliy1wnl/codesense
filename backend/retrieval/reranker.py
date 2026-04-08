@@ -38,7 +38,11 @@ class Reranker:
 
         # Attach scores and sort
         for chunk, score in zip(chunks, scores):
-            chunk["rerank_score"] = float(score)
+            base_score = float(score)
+            # Boost code chunks over doc chunks
+            # Docs are useful but code is the primary source of truth
+            type_bonus = 0.5 if chunk.get("chunk_type") != "doc" else 0.0
+            chunk["rerank_score"] = base_score + type_bonus
 
         reranked = sorted(
             chunks,

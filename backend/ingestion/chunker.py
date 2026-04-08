@@ -90,21 +90,40 @@ class ASTChunker:
             return "unknown"
 
         def visit(node):
-            """Recursively visit AST nodes and extract chunks."""
             if node.type in node_types:
                 start_line = node.start_point[0]
                 end_line = node.end_point[0]
                 chunk_lines = end_line - start_line
 
-                # If chunk is too large, recurse into its children
                 if chunk_lines > self.max_chunk_lines:
+                    # Store a class header chunk (first 10 lines) for context
+                    if "class" in node.type:
+                        header_content = "\n".join(lines[start_line:start_line + 10])
+                        name = extract_name(node)
+                        chunks.append(Chunk(
+                            content=header_content,
+                            file_path=file_record.relative_path,
+                            language=file_record.language,
+                            chunk_type="class",
+                            name=name,
+                            start_line=start_line + 1,
+                            end_line=start_line + 10,
+                            metadata={
+                                "file_path": file_record.relative_path,
+                                "language": file_record.language,
+                                "chunk_type": "class",
+                                "name": name,
+                                "start_line": start_line + 1,
+                                "end_line": start_line + 10,
+                            }
+                        ))
+                    # Then recurse into children
                     for child in node.children:
                         visit(child)
                     return
 
                 content = "\n".join(lines[start_line:end_line + 1])
                 name = extract_name(node)
-
                 chunk_type = "function"
                 if "class" in node.type:
                     chunk_type = "class"
