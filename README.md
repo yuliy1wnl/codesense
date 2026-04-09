@@ -5,7 +5,7 @@
 
 ## What It Does
 
-CodeSense is a production-grade RAG (Retrieval-Augmented Generation) system that lets you chat with any GitHub repository. Instead of blindly splitting code into chunks, it parses the actual AST (Abstract Syntax Tree) of each file — so every chunk is a meaningful function or class, not a random slice of text.
+CodeSense is a production-grade RAG (Retrieval-Augmented Generation) system that lets you chat with any GitHub repository. Instead of blindly splitting code into chunks, it parses the actual AST (Abstract Syntax Tree) of each file so every chunk is a meaningful function or class, not a random slice of text.
 
 Ask questions like:
 - *"How does routing work in this project?"*
@@ -14,7 +14,7 @@ Ask questions like:
 - *"How do I run this project?"*
 - *"Find potential bugs in the upload handler"*
 
-Every answer comes with exact source citations — file name, function name, and line numbers.
+Every answer comes with exact source citations: file name, function name, and line numbers.
 
 ---
 
@@ -47,19 +47,19 @@ Answer + Source Citations
 ### Key Design Decisions
 
 **AST-based chunking over fixed-size splitting**
-Most RAG tutorials split code every 500 characters. CodeSense uses tree-sitter to parse the actual structure of each file — every chunk is a complete function or class. This means retrieved chunks are always syntactically meaningful and self-contained. Benchmarked against naive text splitting on the FastAPI repository: 97.7% of AST chunks are semantically named (functions/classes) vs 0% with naive splitting, with average chunk size of 8.9 lines vs 33.7 lines.
+Most RAG tutorials split code every 500 characters. CodeSense uses tree-sitter to parse the actual structure of each file every chunk is a complete function or class. This means retrieved chunks are always syntactically meaningful and self-contained. Benchmarked against naive text splitting on the FastAPI repository: 97.7% of AST chunks are semantically named (functions/classes) vs 0% with naive splitting, with average chunk size of 8.9 lines vs 33.7 lines.
 
 **Hybrid retrieval with name-boosting**
-Vector search alone misses exact keyword matches (function names, class names). BM25 alone misses semantic similarity. Combining both gives significantly better retrieval across different question types. BM25 uses proper tokenization via regex word extraction — naive `.split()` causes punctuation to attach to tokens (e.g. `depends:` ≠ `depends`), breaking exact keyword matching. Additionally, chunks whose name exactly matches a query token receive a 3x BM25 score boost, surfacing definition chunks over usage chunks.
+Vector search alone misses exact keyword matches (function names, class names). BM25 alone misses semantic similarity. Combining both gives significantly better retrieval across different question types. BM25 uses proper tokenization via regex word extraction naive `.split()` causes punctuation to attach to tokens (e.g. `depends:` ≠ `depends`), breaking exact keyword matching. Additionally, chunks whose name exactly matches a query token receive a 3x BM25 score boost, surfacing definition chunks over usage chunks.
 
 **Full corpus BM25 with paginated scroll**
-BM25 requires scoring against the full corpus, not just vector search candidates. The retriever scrolls all indexed chunks and scores them with BM25, then merges with vector results. Scroll limit must exceed collection size — a limit smaller than the collection silently truncates the corpus and causes BM25 to miss chunks beyond the cutoff.
+BM25 requires scoring against the full corpus, not just vector search candidates. The retriever scrolls all indexed chunks and scores them with BM25, then merges with vector results. Scroll limit must exceed collection size a limit smaller than the collection silently truncates the corpus and causes BM25 to miss chunks beyond the cutoff.
 
 **Cross-encoder reranking with chunk-type awareness**
-Vector similarity scores aren't reliable enough for final ranking. A cross-encoder reads the question and each chunk together — producing much more accurate relevance scores. We retrieve 20 candidates and rerank to the top 5. Code chunks receive a score bonus over doc chunks to prevent documentation from crowding out source code for implementation questions.
+Vector similarity scores aren't reliable enough for final ranking. A cross-encoder reads the question and each chunk together producing much more accurate relevance scores. We retrieve 20 candidates and rerank to the top 5. Code chunks receive a score bonus over doc chunks to prevent documentation from crowding out source code for implementation questions.
 
 **Query intent routing**
-Different questions need different retrieval strategies. "How do I run this?" should search docs, not source code. "Where is auth handled?" should search code only. The router detects intent and routes accordingly — reducing noise in retrieved chunks.
+Different questions need different retrieval strategies. "How do I run this?" should search docs, not source code. "Where is auth handled?" should search code only. The router detects intent and routes accordingly reducing noise in retrieved chunks.
 
 **Dual indexes**
 Code files and documentation are indexed separately. This lets the router search only the relevant index for each question type, improving both speed and accuracy.
@@ -68,7 +68,7 @@ Code files and documentation are indexed separately. This lets the router search
 
 ## Evaluation
 
-CodeSense is evaluated using RAGAS with GPT-4o as the judge LLM. The RAG pipeline itself runs fully locally — only the evaluation judge uses an external API.
+CodeSense is evaluated using RAGAS with GPT-4o as the judge LLM. The RAG pipeline itself runs fully locally only the evaluation judge uses an external API.
 
 Evaluated on 10 questions against the FastAPI repository:
 
@@ -81,10 +81,10 @@ Evaluated on 10 questions against the FastAPI repository:
 
 **Notes on these scores:**
 
-- Faithfulness (0.861) and context recall (0.900) are strong — the retrieval pipeline surfaces the right code and the generator stays grounded in it.
+- Faithfulness (0.861) and context recall (0.900) are strong the retrieval pipeline surfaces the right code and the generator stays grounded in it.
 - Answer relevancy (0.412) is the weakest metric and is constrained by the generator model size. Llama 3.1 8b tends to over-explain rather than answer directly. Improving this would require a larger local model or a hosted generator.
-- Ground truths were generated synthetically using GPT-4o, which introduces evaluation circularity — the same model family generates and judges. Scores are directionally valid but optimistic. Human-written ground truths would give more reliable numbers.
-- Context precision dropped after enabling code-chunk boosting — a deliberate tradeoff that improved faithfulness at the cost of occasionally surfacing less precise code chunks for conceptual questions.
+- Ground truths were generated synthetically using GPT-4o, which introduces evaluation circularity the same model family generates and judges. Scores are directionally valid but optimistic. Human-written ground truths would give more reliable numbers.
+- Context precision dropped after enabling code-chunk boosting a deliberate tradeoff that improved faithfulness at the cost of occasionally surfacing less precise code chunks for conceptual questions.
 - Ground truths are cached after first generation to ensure reproducible scores across runs. Regenerating ground truths each run introduced variance that made it impossible to isolate the effect of code changes on scores.
 
 To run evaluation:
