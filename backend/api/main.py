@@ -301,7 +301,8 @@ async def evaluate_rag(body: EvalRequest):
             questions=questions,
             answers=answers,
             contexts=contexts,
-            ground_truths=body.ground_truths
+            ground_truths=body.ground_truths,
+            repo_id=body.repo_id
         )
     )
 

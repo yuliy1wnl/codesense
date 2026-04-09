@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import time
@@ -12,14 +13,13 @@ from ragas.metrics import (
     context_recall,
 )
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+
 load_dotenv()
 
-# --- Judge LLM is GPT-4o, NOT your local Ollama ---
-# Your RAG pipeline still runs locally (llama3.1 + nomic-embed-text)
-# Only the RAGAS evaluation judge uses OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-JUDGE_LLM_MODEL = os.getenv("JUDGE_LLM_MODEL", "gpt-4o")
-JUDGE_EMBEDDING_MODEL = os.getenv("JUDGE_EMBEDDING_MODEL", "text-embedding-3-small")
+GROUND_TRUTH_CACHE_PATH = os.getenv(
+    "GROUND_TRUTH_CACHE_PATH",
+    "backend/evaluation/ground_truth_cache.json"
+)
 
 
 class RAGEvaluator:
@@ -38,25 +38,47 @@ class RAGEvaluator:
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
         )
 
+    def _load_cache(self) -> dict:
+        if os.path.exists(GROUND_TRUTH_CACHE_PATH):
+            with open(GROUND_TRUTH_CACHE_PATH, "r") as f:
+                return json.load(f)
+        return {}
+
+    def _save_cache(self, cache: dict):
+        os.makedirs(os.path.dirname(GROUND_TRUTH_CACHE_PATH), exist_ok=True)
+        with open(GROUND_TRUTH_CACHE_PATH, "w") as f:
+            json.dump(cache, f, indent=2)
+        print(f"Ground truths saved to {GROUND_TRUTH_CACHE_PATH}")
+
+    def _get_cache_key(self, repo_id: str, question: str) -> str:
+        return f"{repo_id}::{question.strip().lower()}"
+
     def generate_ground_truths(
         self,
         questions: List[str],
-        contexts: List[List[str]]
+        contexts: List[List[str]],
+        repo_id: str = "default"
     ) -> List[str]:
         """
-        Synthetically generate ground truths using GPT-4o.
-
-        NOTE: This introduces circularity — the same model family
-        generates and judges. Scores will be optimistic. This is
-        acceptable for a portfolio project but not for production evals.
-        Always disclose this limitation when presenting results.
+        Generate ground truths using GPT-4o, with caching.
+        First run: generates and saves to disk.
+        Subsequent runs: loads from cache — scores are now reproducible.
+        NOTE: Introduces circularity — same model family generates and judges.
         """
-        print("\nGenerating synthetic ground truths with GPT-4o...")
+        cache = self._load_cache()
         ground_truths = []
+        new_entries = 0
 
+        print("\nLoading/generating ground truths...")
         for i, (question, context_chunks) in enumerate(zip(questions, contexts)):
-            context_text = "\n\n".join(context_chunks)
-            prompt = f"""You are an expert software engineer.
+            cache_key = self._get_cache_key(repo_id, question)
+
+            if cache_key in cache:
+                ground_truths.append(cache[cache_key])
+                print(f"  Loaded from cache {i+1}/{len(questions)}: {question[:50]}...")
+            else:
+                context_text = "\n\n".join(context_chunks)
+                prompt = f"""You are an expert software engineer.
 Given the following code context, write a concise and accurate ground truth answer to the question.
 The answer should be factual, based only on the provided context.
 
@@ -67,9 +89,18 @@ Question: {question}
 
 Ground truth answer (2-4 sentences, technical and precise):"""
 
-            response = self.llm.invoke(prompt)
-            ground_truths.append(response.content.strip())
-            print(f"  Generated ground truth {i+1}/{len(questions)}")
+                response = self.llm.invoke(prompt)
+                gt = response.content.strip()
+                ground_truths.append(gt)
+                cache[cache_key] = gt
+                new_entries += 1
+                print(f"  Generated ground truth {i+1}/{len(questions)}: {question[:50]}...")
+
+        if new_entries > 0:
+            self._save_cache(cache)
+            print(f"Saved {new_entries} new ground truths to cache.")
+        else:
+            print("All ground truths loaded from cache — scores are reproducible.")
 
         return ground_truths
 
@@ -78,28 +109,15 @@ Ground truth answer (2-4 sentences, technical and precise):"""
         questions: List[str],
         answers: List[str],
         contexts: List[List[str]],
-        ground_truths: Optional[List[str]] = None
+        ground_truths: Optional[List[str]] = None,
+        repo_id: str = "default"
     ) -> dict:
-        """
-        Run RAGAS evaluation on a set of Q&A pairs.
-
-        Metrics:
-        - faithfulness:       is the answer grounded in the retrieved context?
-        - answer_relevancy:   does the answer address the question?
-        - context_precision:  are the retrieved chunks relevant? (needs ground truth)
-        - context_recall:     did we retrieve everything needed? (needs ground truth)
-
-        If ground_truths is None, they are generated synthetically via GPT-4o.
-        """
         print("\nRunning RAGAS evaluation...")
 
-        # Auto-generate ground truths if not provided
         if not ground_truths:
-            print("No ground truths provided — generating synthetically.")
             print("WARNING: Synthetic ground truths introduce evaluation circularity.")
-            ground_truths = self.generate_ground_truths(questions, contexts)
+            ground_truths = self.generate_ground_truths(questions, contexts, repo_id)
 
-        # Build RAGAS dataset
         data = {
             "question": questions,
             "answer": answers,
@@ -108,8 +126,6 @@ Ground truth answer (2-4 sentences, technical and precise):"""
         }
         dataset = Dataset.from_dict(data)
 
-        # All 4 metrics — we always have ground truths now
-        # BUG FIX: was metrics.append([...]) which nested a list inside a list
         metrics = [
             faithfulness,
             answer_relevancy,
@@ -117,7 +133,6 @@ Ground truth answer (2-4 sentences, technical and precise):"""
             context_recall
         ]
 
-        # Run evaluation
         start = time.time()
         results = evaluate(
             dataset=dataset,
@@ -130,11 +145,6 @@ Ground truth answer (2-4 sentences, technical and precise):"""
         scores = results.to_pandas().to_dict(orient="list")
 
         def safe_score(key):
-            """
-            Average scores across all samples.
-            BUG FIX: original code only read index [0], silently
-            dropping all rows except the first when evaluating multiple questions.
-            """
             vals = scores.get(key, [])
             if not vals:
                 return 0.0
@@ -155,7 +165,7 @@ Ground truth answer (2-4 sentences, technical and precise):"""
             "context_recall":      safe_score("context_recall"),
             "eval_time_seconds":   round(elapsed, 1),
             "num_samples":         len(questions),
-            "ground_truth_source": "synthetic_gpt4o"
+            "ground_truth_source": "synthetic_gpt4o_cached"
         }
 
         print(f"Evaluation complete in {elapsed:.1f}s")

@@ -74,10 +74,10 @@ Evaluated on 10 questions against the FastAPI repository:
 
 | Metric | Score | What it measures |
 |---|---|---|
-| Faithfulness | **0.861** | Are answers grounded in retrieved context? |
-| Answer Relevancy | **0.412** | Do answers directly address the question? |
-| Context Precision | **0.571** | Are retrieved chunks relevant? |
-| Context Recall | **0.900** | Did retrieval find everything needed? |
+| Faithfulness | **0.889** | Are answers grounded in retrieved context? |
+| Answer Relevancy | **0.434** | Do answers directly address the question? |
+| Context Precision | **0.608** | Are retrieved chunks relevant? |
+| Context Recall | **0.933** | Did retrieval find everything needed? |
 
 **Notes on these scores:**
 
@@ -85,6 +85,7 @@ Evaluated on 10 questions against the FastAPI repository:
 - Answer relevancy (0.412) is the weakest metric and is constrained by the generator model size. Llama 3.1 8b tends to over-explain rather than answer directly. Improving this would require a larger local model or a hosted generator.
 - Ground truths were generated synthetically using GPT-4o, which introduces evaluation circularity — the same model family generates and judges. Scores are directionally valid but optimistic. Human-written ground truths would give more reliable numbers.
 - Context precision dropped after enabling code-chunk boosting — a deliberate tradeoff that improved faithfulness at the cost of occasionally surfacing less precise code chunks for conceptual questions.
+- Ground truths are cached after first generation to ensure reproducible scores across runs. Regenerating ground truths each run introduced variance that made it impossible to isolate the effect of code changes on scores.
 
 To run evaluation:
 

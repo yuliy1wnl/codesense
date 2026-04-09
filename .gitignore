@@ -9,3 +9,4 @@ build/
 tmp/
 *.log
 .pytest_cache/
+ground_truth_cache.json
