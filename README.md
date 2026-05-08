@@ -135,7 +135,7 @@ curl -X POST http://localhost:8000/evaluate \
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/codesense
+git clone https://github.com/yuliy1wnl/codesense
 cd codesense
 ```
 
