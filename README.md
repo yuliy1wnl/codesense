@@ -81,8 +81,8 @@ Evaluated on 10 questions against the FastAPI repository:
 
 **Notes on these scores:**
 
-- Faithfulness (0.861) and context recall (0.900) are strong the retrieval pipeline surfaces the right code and the generator stays grounded in it.
-- Answer relevancy (0.412) is the weakest metric and is constrained by the generator model size. Llama 3.1 8b tends to over-explain rather than answer directly. Improving this would require a larger local model or a hosted generator.
+- Faithfulness (0.889) and context recall (0.933) are strong the retrieval pipeline surfaces the right code and the generator stays grounded in it.
+- Answer relevancy (0.434) is the weakest metric and is constrained by the generator model size. Llama 3.1 8b tends to over-explain rather than answer directly. Improving this would require a larger local model or a hosted generator.
 - Ground truths were generated synthetically using GPT-4o, which introduces evaluation circularity the same model family generates and judges. Scores are directionally valid but optimistic. Human-written ground truths would give more reliable numbers.
 - Context precision dropped after enabling code-chunk boosting a deliberate tradeoff that improved faithfulness at the cost of occasionally surfacing less precise code chunks for conceptual questions.
 - Ground truths are cached after first generation to ensure reproducible scores across runs. Regenerating ground truths each run introduced variance that made it impossible to isolate the effect of code changes on scores.
@@ -115,6 +115,7 @@ curl -X POST http://localhost:8000/evaluate \
 | Evaluation | RAGAS |
 | Backend | FastAPI |
 | Frontend | Next.js + Tailwind CSS |
+| Containerization | Docker, Docker Compose |
 
 **The RAG pipeline runs fully locally. An OpenAI API key is only required to run RAGAS evaluation.**
 
@@ -125,7 +126,7 @@ curl -X POST http://localhost:8000/evaluate \
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 18+
+- Node.js 20+
 - Docker Desktop
 - Ollama
 - 16GB RAM recommended (8GB minimum)
@@ -147,68 +148,31 @@ ollama pull llama3.1
 ollama pull nomic-embed-text
 ```
 
-### 3. Start Qdrant
+### 3. Start Ollama
 
 ```bash
-docker-compose up -d
+ollama serve
+ollama pull llama3.1
+ollama pull nomic-embed-text
 ```
 
-Verify at `http://localhost:6333/dashboard`
-
-### 4. Set up Python environment
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-echo 'export PYTHONPATH=$PYTHONPATH:.' >> venv/bin/activate
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 5. Configure environment
+### 4. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` with your Azure OpenAI credentials.
 
-```
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_MODEL=llama3.1
-EMBEDDING_MODEL=nomic-embed-text
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-TOP_K_RETRIEVAL=20
-TOP_K_RERANK=5
-
-# Required only for RAGAS evaluation
-AZURE_OPENAI_API_KEY=your-key-here
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_API_VERSION=2024-12-01-preview
-AZURE_OPENAI_DEPLOYMENT=gpt-4o
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
-```
-
-### 6. Start the backend
+### 5. Start everything
 
 ```bash
-uvicorn backend.api.main:app --reload --port 8000
-```
-
-API docs available at `http://localhost:8000/docs`
-
-### 7. Start the frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
+docker-compose up --build
 ```
 
 Open `http://localhost:3000`
 
----
+That's it. Qdrant, backend, and frontend all start with one command.
 
 ## Usage
 
@@ -264,7 +228,9 @@ codesense/
 │       └── main.py         # FastAPI app
 ├── frontend/               # Next.js chat UI
 ├── tests/                  # Integration tests
-├── docker-compose.yml      # Qdrant
+├── docker-compose.yml      # Qdrant + backend + frontend
+├── Dockerfile.backend      # FastAPI container
+└── frontend/Dockerfile     # Next.js container
 └── requirements.txt
 ```
 
@@ -277,7 +243,8 @@ codesense/
 - [x] Phase 3 — Generation & memory (streaming, multi-turn chat)
 - [x] Phase 4 — Evaluation pipeline (RAGAS metrics, GPT-4o judge)
 - [x] Phase 5 — Next.js frontend
-- [ ] Deployment (Docker + cloud)
+- [x] Containerization (Docker Compose — full stack in one command)
+- [ ] Cloud deployment
 - [ ] Support for private repositories
 - [ ] VS Code extension
 
